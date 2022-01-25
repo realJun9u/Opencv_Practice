@@ -23,19 +23,25 @@ def str2float(str):
 def max_mean(img_thresh,minval,maxval):
     img_temp = np.round(img_thresh * (maxval-minval)/255 + minval,1)
     rows, columns = img_thresh.shape
-    r_max,c_max = np.where(img_temp >= np.max(img_temp))
     r_nose = int(rows * 1/2)
     r_chin = int(rows * 4/5)
     img_overnose = img_temp[:r_nose]
+    img_middle = img_temp[r_nose:r_chin]
     img_underchin = img_temp[r_chin:]
+    img_set = [(img_overnose,0,(255,0,0)),(img_middle,r_nose,(255,127,0)),(img_underchin,r_chin,(255,212,0))]
     print(f"이마 ~ 코 최대 온도 : {np.max(img_overnose)}, 평균 온도 : {np.round(np.mean(img_overnose[img_overnose>minval]),1)}")
+    print(f"코 ~ 턱 최대 온도 : {np.max(img_middle)}, 평균 온도 : {np.round(np.mean(img_middle[img_middle>minval]),1)}")
     print(f"턱 ~ 목 최대 온도 : {np.max(img_underchin)}, 평균 온도 : {np.round(np.mean(img_underchin[img_underchin>minval]),1)}")
-    img_thresh = cv2.cvtColor(img_thresh,cv2.COLOR_GRAY2RGB)
-    cv2.line(img_thresh,(0,r_nose),(columns-1,r_nose),(0,255,0),1)
-    cv2.line(img_thresh,(0,r_chin),(columns-1,r_chin),(0,255,0),1)
-    for x,y in zip(c_max,r_max):
-        cv2.circle(img_thresh,(x,y),1,(255,0,0),1)
-    return img_thresh
+    img_out = cv2.cvtColor(img_thresh,cv2.COLOR_GRAY2RGB)
+    cv2.line(img_out,(0,r_nose),(columns-1,r_nose),(0,255,0),1)
+    cv2.line(img_out,(0,r_chin),(columns-1,r_chin),(0,255,0),1)
+    for i in range(len(img_set)):
+        r_max,c_max = np.where(img_set[i][0] >= np.max(img_set[i][0]))
+        r_max += img_set[i][1]
+        color = img_set[i][2]
+        for x,y in zip(c_max,r_max):
+            cv2.circle(img_out,(x,y),1,color,1)
+    return img_out
 
 # make face area
 def makefacearea(image):
@@ -83,6 +89,8 @@ if __name__ == '__main__':
     img_color = cv2.imread(file2)
 
     # temperature image processing
+    mintemp_thresh = 28
+    maxtemp_thresh = 40
     min_img = img_thermal_gray[215:235,280:315]
     max_img = img_thermal_gray[5:25,280:315]
     min_img = cv2.threshold(min_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
@@ -118,8 +126,18 @@ if __name__ == '__main__':
         # extract face area
         img_fg = img_thermal_gray[points[0][0]:points[0][1],points[0][2]:points[0][3]]
         # thresholding thermal image
-        _, mask_thresh = cv2.threshold(img_fg,200,255,cv2.THRESH_BINARY)
+        # remove low temperature
+        value_thresh = (mintemp_thresh - minval) * 255 / (maxval - minval)
+        print(f"Threshold 기준 값 : {value_thresh}")
+        _, mask_thresh = cv2.threshold(img_fg,value_thresh,255,cv2.THRESH_BINARY)
         img_thresh = cv2.bitwise_and(img_fg,img_fg,mask=mask_thresh)
+        # remove high temperature
+        value_thresh = (maxtemp_thresh - minval) * 255 / (maxval - minval)
+        print(f"Threshold 기준 값 : {value_thresh}")
+        _, mask_thresh = cv2.threshold(img_fg,value_thresh,255,cv2.THRESH_BINARY_INV)
+        # Use Erosion
+        mask_thresh = cv2.erode(mask_thresh,None,iterations=3)
+        img_thresh = cv2.bitwise_and(img_thresh,img_thresh,mask=mask_thresh)
         # print max, mean
         img_thresh = max_mean(img_thresh,minval,maxval)
         # Plot
